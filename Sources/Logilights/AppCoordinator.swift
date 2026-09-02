@@ -2,30 +2,71 @@ import Foundation
 import IOKit.hid
 
 /// Owns the app's long-lived background state: watches for Logitech HID
-/// devices and applies the configured color whenever one is (re)connected.
+/// devices, keeps track of which supported models are currently connected
+/// (for the UI), and applies each model's stored color whenever a device
+/// for it is (re)connected.
 ///
-/// The hardcoded `placeholderColor` is temporary — `ColorProfileStore` will
-/// replace it with a per-device, user-configured color, and
-/// `TriggerCoordinator` will add the login/wake triggers on top of the
-/// attach trigger already wired up here.
+/// `TriggerCoordinator` (next step) adds the login/wake triggers on top of
+/// the attach trigger already wired up here.
 final class AppCoordinator: ObservableObject {
     let deviceMonitor = HIDDeviceMonitor(vendorID: LogitechDevices.logitechVendorID)
+    let profileStore = ColorProfileStore()
+
+    /// Models currently seen connected, for display in the UI. A model can
+    /// appear more than once transiently (one physical keyboard exposes
+    /// several HID interfaces); we only care about presence, not count.
+    @Published private(set) var connectedModels: Set<LogitechKeyboardModel> = []
+
     private let lightingApplier = LightingApplier()
-    private let placeholderColor = LogitechColor(red: 0x00, green: 0x80, blue: 0xff)
 
     init() {
-        deviceMonitor.onDeviceMatched = { [lightingApplier, placeholderColor] device in
-            let name = device.productName ?? "unknown"
-            guard let model = device.logitechModel else {
-                print("Logilights: device attached: \(name) (unsupported model, ignoring)")
-                return
-            }
-            print("Logilights: device attached: \(name) (\(model.rawValue))")
-            lightingApplier.apply(color: placeholderColor, to: device)
+        deviceMonitor.onDeviceMatched = { [weak self] device in
+            self?.handleDeviceMatched(device)
         }
-        deviceMonitor.onDeviceRemoved = { device in
-            print("Logilights: device removed: \(device.productName ?? "unknown")")
+        deviceMonitor.onDeviceRemoved = { [weak self] device in
+            self?.handleDeviceRemoved(device)
         }
         deviceMonitor.start()
+        refreshConnectedModels()
+    }
+
+    private func handleDeviceMatched(_ device: IOHIDDevice) {
+        let name = device.productName ?? "unknown"
+        guard let model = device.logitechModel else {
+            print("Logilights: device attached: \(name) (unsupported model, ignoring)")
+            return
+        }
+        print("Logilights: device attached: \(name) (\(model.rawValue))")
+        connectedModels.insert(model)
+        applyStoredColor(to: device, model: model)
+    }
+
+    private func handleDeviceRemoved(_ device: IOHIDDevice) {
+        print("Logilights: device removed: \(device.productName ?? "unknown")")
+        refreshConnectedModels()
+    }
+
+    private func refreshConnectedModels() {
+        connectedModels = Set(deviceMonitor.connectedDevices().compactMap(\.logitechModel))
+    }
+
+    private func applyStoredColor(to device: IOHIDDevice, model: LogitechKeyboardModel) {
+        let color = profileStore.color(for: model)
+        lightingApplier.apply(color: color, to: device)
+    }
+
+    /// Re-applies each connected model's stored color to every matching
+    /// device. Used after the user changes a color in the UI, and will also
+    /// be used by `TriggerCoordinator` for the login/wake triggers.
+    func applyAllStoredColors() {
+        for device in deviceMonitor.connectedDevices() {
+            guard let model = device.logitechModel else { continue }
+            applyStoredColor(to: device, model: model)
+        }
+    }
+
+    func setColor(_ color: LogitechColor, for model: LogitechKeyboardModel) {
+        profileStore.setColor(color, for: model)
+        applyAllStoredColors()
     }
 }

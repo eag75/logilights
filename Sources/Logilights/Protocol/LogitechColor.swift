@@ -1,7 +1,7 @@
 import Foundation
 
 /// A solid RGB color as understood by the Logitech G-series LED protocol.
-public struct LogitechColor: Equatable, Hashable {
+public struct LogitechColor: Equatable, Hashable, Codable {
     public var red: UInt8
     public var green: UInt8
     public var blue: UInt8
