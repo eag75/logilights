@@ -6,8 +6,15 @@ Login und beim Aufwachen aus dem Schlafmodus.
 
 ## Status
 
-Funktioniert: gegen eine echte **Logitech G213** verifiziert — Farben werden
-gesetzt, und die App wendet sie beim Anstecken automatisch an.
+Gegen eine echte **Logitech G213** verifiziert:
+
+| | |
+|---|---|
+| Farbe setzen | ✅ |
+| Automatisch beim Anstecken | ✅ |
+| Automatisch beim App-Start (= nach Login) | ✅ |
+| Beim Aufwachen aus dem Schlafmodus | ⏳ implementiert, real noch nicht getestet |
+| Als Login Item registrieren | ✅ (`enable`/`disable` verifiziert) |
 
 ## Unterstützte Geräte
 
@@ -112,12 +119,49 @@ swift run LogilightsCLI set ff0000    # ganze Tastatur rot
 swift run LogilightsCLI dump ff0000   # Reports anzeigen, ohne Hardware anzufassen
 ```
 
-Die App läuft als Menüleisten-Symbol ohne Dock-Icon (`NSApplication`-
-Activation-Policy `.accessory`).
+Die App läuft als Menüleisten-Symbol ohne Dock-Icon (`LSUIElement`).
 
-**Hinweis:** Login-Item-Registrierung (`SMAppService`) greift erst, wenn die
-App als signiertes `.app`-Bundle läuft — unter `swift run` wird ein Fehler
-geloggt und übersprungen, das ist normal während der Entwicklung.
+### App-Bundle bauen
+
+`swift run` reicht zum Entwickeln, aber „Beim Anmelden starten"
+(`SMAppService`) funktioniert nur aus einem echten, signierten Bundle:
+
+```sh
+./scripts/build-app.sh              # -> build/Logilights.app (ad-hoc signiert)
+./scripts/build-app.sh --install    # zusätzlich nach /Applications kopieren
+```
+
+Für eine verteilbare Version eine Developer ID setzen:
+
+```sh
+SIGN_IDENTITY="Developer ID Application: Dein Name (TEAMID)" ./scripts/build-app.sh
+```
+
+Weil macOS Anmeldeobjekte an den Pfad des Bundles bindet, sollte die App an
+einem festen Ort liegen (z.B. `/Applications`) — nicht im `build/`-Ordner.
+
+### Beim Anmelden starten
+
+Der Schalter sitzt im Menüleisten-Popover. Logilights trägt sich **nicht**
+von selbst ein. Skriptbar ist es auch:
+
+```sh
+/Applications/Logilights.app/Contents/MacOS/Logilights --login-item status
+/Applications/Logilights.app/Contents/MacOS/Logilights --login-item enable
+/Applications/Logilights.app/Contents/MacOS/Logilights --login-item disable
+```
+
+Meldet der Status `requiresApproval`, muss der Eintrag noch unter
+Systemeinstellungen → Allgemein → Anmeldeobjekte freigegeben werden.
+
+### Logs
+
+Ein gebündeltes `.app` hat kein brauchbares stdout, daher läuft alles über
+`os_log`:
+
+```sh
+log stream --level info --predicate 'subsystem == "io.github.logilights.Logilights"'
+```
 
 ## Lizenz
 
