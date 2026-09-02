@@ -4,10 +4,8 @@ import IOKit.hid
 /// Owns the app's long-lived background state: watches for Logitech HID
 /// devices, keeps track of which supported models are currently connected
 /// (for the UI), and applies each model's stored color whenever a device
-/// for it is (re)connected.
-///
-/// `TriggerCoordinator` (next step) adds the login/wake triggers on top of
-/// the attach trigger already wired up here.
+/// for it is (re)connected — plus, via `TriggerCoordinator`, on launch
+/// (after login) and on wake from sleep.
 final class AppCoordinator: ObservableObject {
     let deviceMonitor = HIDDeviceMonitor(vendorID: LogitechDevices.logitechVendorID)
     let profileStore = ColorProfileStore()
@@ -18,6 +16,9 @@ final class AppCoordinator: ObservableObject {
     @Published private(set) var connectedModels: Set<LogitechKeyboardModel> = []
 
     private let lightingApplier = LightingApplier()
+    private lazy var triggerCoordinator = TriggerCoordinator { [weak self] in
+        self?.applyAllStoredColors()
+    }
 
     init() {
         deviceMonitor.onDeviceMatched = { [weak self] device in
@@ -28,6 +29,7 @@ final class AppCoordinator: ObservableObject {
         }
         deviceMonitor.start()
         refreshConnectedModels()
+        triggerCoordinator.start()
     }
 
     private func handleDeviceMatched(_ device: IOHIDDevice) {
@@ -56,8 +58,8 @@ final class AppCoordinator: ObservableObject {
     }
 
     /// Re-applies each connected model's stored color to every matching
-    /// device. Used after the user changes a color in the UI, and will also
-    /// be used by `TriggerCoordinator` for the login/wake triggers.
+    /// device. Used after the user changes a color in the UI, and by
+    /// `TriggerCoordinator` for the launch/wake triggers.
     func applyAllStoredColors() {
         for device in deviceMonitor.connectedDevices() {
             guard let model = device.logitechModel else { continue }
