@@ -1,4 +1,5 @@
 import SwiftUI
+import LogilightsCore
 
 struct ContentView: View {
     @EnvironmentObject private var coordinator: AppCoordinator

@@ -1,4 +1,5 @@
 import SwiftUI
+import LogilightsCore
 
 @main
 struct LogilightsApp: App {

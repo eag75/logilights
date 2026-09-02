@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.hid
+import LogilightsCore
 
 /// Owns the app's long-lived background state: watches for Logitech HID
 /// devices, keeps track of which supported models are currently connected

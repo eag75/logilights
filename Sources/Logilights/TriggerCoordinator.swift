@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ServiceManagement
+import LogilightsCore
 
 /// Wires up the moments lighting should be (re)applied, beyond the device
 /// attach trigger `AppCoordinator` already handles directly:

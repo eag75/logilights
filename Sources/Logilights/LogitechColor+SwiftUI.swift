@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LogilightsCore
 
 extension LogitechColor {
     var swiftUIColor: Color {

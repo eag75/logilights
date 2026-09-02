@@ -1,5 +1,5 @@
 import XCTest
-@testable import Logilights
+@testable import LogilightsCore
 
 final class LogitechColorProtocolTests: XCTestCase {
 
