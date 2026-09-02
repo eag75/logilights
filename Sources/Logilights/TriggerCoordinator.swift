@@ -1,18 +1,17 @@
 import AppKit
 import Foundation
-import ServiceManagement
 import LogilightsCore
 
 /// Wires up the moments lighting should be (re)applied, beyond the device
 /// attach trigger `AppCoordinator` already handles directly:
 ///
 /// - App launch, i.e. "beim Rechnerstart" in the sense agreed with the user:
-///   after login, once `Logilights` (registered as a login item) starts.
-///   IOHIDManager actually delivers a "matched" callback for already-
-///   connected devices too when the manager is opened, so this is largely
-///   covered by the attach path already — calling `onTrigger` here as well
-///   just makes it explicit and resilient to IOKit timing quirks.
+///   after login, once Logilights starts (see `LoginItem`).
 /// - Wake from sleep (`NSWorkspace.didWakeNotification`).
+///
+/// Registering as a login item is *not* done here — that is a user-facing
+/// setting, toggled in the menu (`LoginItem`), so the app doesn't silently
+/// add itself to the user's login items on first launch.
 final class TriggerCoordinator {
     private let onTrigger: () -> Void
     private var wakeObserver: NSObjectProtocol?
@@ -28,7 +27,7 @@ final class TriggerCoordinator {
     }
 
     func start() {
-        registerAsLoginItem()
+        Log.lifecycle.info("Applying colors on launch")
         onTrigger()
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -36,20 +35,8 @@ final class TriggerCoordinator {
             object: nil,
             queue: .main
         ) { [onTrigger] _ in
+            Log.lifecycle.info("Woke from sleep — reapplying colors")
             onTrigger()
-        }
-    }
-
-    /// Only takes effect once the app is packaged/signed as a proper .app
-    /// bundle (SMAppService needs that); running via `swift run` during
-    /// development will log and no-op here, which is expected.
-    private func registerAsLoginItem() {
-        do {
-            if SMAppService.mainApp.status != .enabled {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            print("Logilights: could not register as login item: \(error)")
         }
     }
 }

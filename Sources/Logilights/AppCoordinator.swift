@@ -13,6 +13,9 @@ final class AppCoordinator: ObservableObject {
     /// Models currently connected, for display in the UI.
     @Published private(set) var connectedModels: Set<LogitechKeyboardModel> = []
 
+    /// Whether Logilights is registered to start at login.
+    @Published private(set) var loginItemState: LoginItem.State = .unavailable
+
     private let transport = USBLEDTransport()
     private lazy var triggerCoordinator = TriggerCoordinator { [weak self] in
         self?.applyAllStoredColors()
@@ -27,17 +30,22 @@ final class AppCoordinator: ObservableObject {
         }
         deviceMonitor.start()
         refreshConnectedModels()
+        loginItemState = LoginItem.state
         triggerCoordinator.start()
     }
 
+    func setLaunchAtLogin(_ enabled: Bool) {
+        loginItemState = LoginItem.setEnabled(enabled)
+    }
+
     private func handleDeviceAttached(_ device: USBDeviceMonitor.Device) {
-        print("Logilights: device attached: \(device.name) (\(device.model.rawValue))")
+        Log.devices.info("Attached: \(device.name, privacy: .public) (\(device.model.rawValue, privacy: .public))")
         connectedModels.insert(device.model)
         apply(to: device.model)
     }
 
     private func handleDeviceDetached(_ device: USBDeviceMonitor.Device) {
-        print("Logilights: device removed: \(device.name)")
+        Log.devices.info("Removed: \(device.name, privacy: .public)")
         refreshConnectedModels()
     }
 
@@ -48,8 +56,9 @@ final class AppCoordinator: ObservableObject {
     private func apply(to model: LogitechKeyboardModel) {
         do {
             try transport.apply(color: profileStore.color(for: model), to: model)
+            Log.lighting.info("Applied color to \(model.rawValue, privacy: .public)")
         } catch {
-            print("Logilights: could not set color on \(model.rawValue): \(error)")
+            Log.lighting.error("Could not set color on \(model.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 

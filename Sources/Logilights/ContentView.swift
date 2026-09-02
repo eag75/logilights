@@ -25,12 +25,16 @@ struct ContentView: View {
             }
             .disabled(coordinator.connectedModels.isEmpty)
 
+            LoginItemRow(coordinator: coordinator)
+
+            Divider()
+
             Button("Beenden") {
                 NSApplication.shared.terminate(nil)
             }
         }
         .padding()
-        .frame(width: 240)
+        .frame(width: 250)
     }
 }
 
@@ -47,5 +51,38 @@ private struct DeviceColorRow: View {
             ),
             supportsOpacity: false
         )
+    }
+}
+
+private struct LoginItemRow: View {
+    @ObservedObject var coordinator: AppCoordinator
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(
+                "Beim Anmelden starten",
+                isOn: Binding(
+                    get: { coordinator.loginItemState.isOn },
+                    set: { coordinator.setLaunchAtLogin($0) }
+                )
+            )
+            .disabled(coordinator.loginItemState == .unavailable)
+
+            switch coordinator.loginItemState {
+            case .requiresApproval:
+                Text("Muss noch unter Systemeinstellungen → Allgemein → "
+                     + "Anmeldeobjekte freigegeben werden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .unavailable:
+                Text("Nur verfügbar, wenn Logilights als App-Bundle läuft.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .enabled, .notRegistered:
+                EmptyView()
+            }
+        }
     }
 }
