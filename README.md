@@ -14,8 +14,8 @@ Gegen eine echte **Logitech G213** verifiziert:
 | Automatisch beim An- und Abstecken | ✅ |
 | Automatisch beim App-Start (= nach Login) | ✅ |
 | Beim Aufwachen aus dem Schlafmodus | ✅ |
-| Nach einem Neustart des Rechners | ✅ (als Login Item) |
-| Als Login Item registrieren | ✅ (`enable`/`disable` verifiziert) |
+| Nach einem Neustart des Rechners | ✅ (über das Login Item) |
+| Als Login Item registrieren | ✅ (Menü-Schalter und `enable`/`disable`) |
 
 ## Unterstützte Geräte
 
