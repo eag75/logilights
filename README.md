@@ -11,9 +11,10 @@ Gegen eine echte **Logitech G213** verifiziert:
 | | |
 |---|---|
 | Farbe setzen | ✅ |
-| Automatisch beim Anstecken | ✅ |
+| Automatisch beim An- und Abstecken | ✅ |
 | Automatisch beim App-Start (= nach Login) | ✅ |
-| Beim Aufwachen aus dem Schlafmodus | ⏳ implementiert, real noch nicht getestet |
+| Beim Aufwachen aus dem Schlafmodus | ✅ |
+| Nach einem Neustart des Rechners | ✅ (als Login Item) |
 | Als Login Item registrieren | ✅ (`enable`/`disable` verifiziert) |
 
 ## Unterstützte Geräte
