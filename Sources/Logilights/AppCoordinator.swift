@@ -16,6 +16,9 @@ final class AppCoordinator: ObservableObject {
     /// Whether Logilights is registered to start at login.
     @Published private(set) var loginItemState: LoginItem.State = .unavailable
 
+    /// Set when the last attempt to change the login item failed.
+    @Published private(set) var loginItemError: String?
+
     private let transport = USBLEDTransport()
     private lazy var triggerCoordinator = TriggerCoordinator { [weak self] in
         self?.applyAllStoredColors()
@@ -36,6 +39,7 @@ final class AppCoordinator: ObservableObject {
 
     func setLaunchAtLogin(_ enabled: Bool) {
         loginItemState = LoginItem.setEnabled(enabled)
+        loginItemError = LoginItem.lastError
     }
 
     private func handleDeviceAttached(_ device: USBDeviceMonitor.Device) {

@@ -68,21 +68,32 @@ private struct LoginItemRow: View {
             )
             .disabled(coordinator.loginItemState == .unavailable)
 
-            switch coordinator.loginItemState {
-            case .requiresApproval:
-                Text("Muss noch unter Systemeinstellungen → Allgemein → "
-                     + "Anmeldeobjekte freigegeben werden.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            case .unavailable:
-                Text("Nur verfügbar, wenn Logilights als App-Bundle läuft.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            case .enabled, .notRegistered:
-                EmptyView()
+            if let error = coordinator.loginItemError {
+                Hint("Fehlgeschlagen: \(error)")
+            } else {
+                switch coordinator.loginItemState {
+                case .requiresApproval:
+                    Hint("Muss noch unter Systemeinstellungen → Allgemein → "
+                         + "Anmeldeobjekte freigegeben werden.")
+                case .unavailable:
+                    Hint("Nur verfügbar, wenn Logilights als App-Bundle läuft.")
+                case .enabled, .notRegistered:
+                    EmptyView()
+                }
             }
         }
+    }
+}
+
+private struct Hint: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
