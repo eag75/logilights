@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LogilightsCore
 
@@ -19,6 +20,7 @@ final class AppCoordinator: ObservableObject {
     /// Set when the last attempt to change the login item failed.
     @Published private(set) var loginItemError: String?
 
+    private var profileObserver: AnyCancellable?
     private let transport = USBLEDTransport()
     private lazy var triggerCoordinator = TriggerCoordinator { [weak self] in
         self?.applyAllStoredColors()
@@ -31,6 +33,13 @@ final class AppCoordinator: ObservableObject {
         deviceMonitor.onDeviceDetached = { [weak self] device in
             self?.handleDeviceDetached(device)
         }
+        // The color lives in `profileStore`, but the views observe *this*
+        // object. Without forwarding, a color change would not redraw the
+        // swatch that triggered it.
+        profileObserver = profileStore.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+
         deviceMonitor.start()
         refreshConnectedModels()
         loginItemState = LoginItem.state

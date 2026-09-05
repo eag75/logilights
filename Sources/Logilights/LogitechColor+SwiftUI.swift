@@ -7,6 +7,11 @@ extension LogitechColor {
         Color(red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255)
     }
 
+    /// `#rrggbb`, for showing the exact value the device will receive.
+    var hexString: String {
+        String(format: "#%02x%02x%02x", red, green, blue)
+    }
+
     init(_ color: Color) {
         let rgb = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor(color)
         self.init(

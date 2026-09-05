@@ -101,3 +101,41 @@ final class LogitechColorProtocolTests: XCTestCase {
         }
     }
 }
+
+/// The color picker's changes only survive a restart if the store actually
+/// writes them out — a path that had never run, since no profile.json
+/// existed after days of use.
+final class ColorProfileStoreTests: XCTestCase {
+    private var fileURL: URL!
+
+    override func setUp() {
+        super.setUp()
+        fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("logilights-test-\(UUID().uuidString).json")
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: fileURL)
+        super.tearDown()
+    }
+
+    func testUnsetModelFallsBackToDefaultColor() {
+        let store = ColorProfileStore(fileURL: fileURL)
+        XCTAssertEqual(store.color(for: .g213), ColorProfileStore.defaultColor)
+    }
+
+    func testSetColorPersistsAcrossInstances() {
+        let color = LogitechColor(red: 0x12, green: 0x34, blue: 0x56)
+
+        let store = ColorProfileStore(fileURL: fileURL)
+        store.setColor(color, for: .g213)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                      "setColor must write the profile to disk")
+
+        let reloaded = ColorProfileStore(fileURL: fileURL)
+        XCTAssertEqual(reloaded.color(for: .g213), color)
+        XCTAssertEqual(reloaded.color(for: .g810), ColorProfileStore.defaultColor,
+                       "other models must stay untouched")
+    }
+}
