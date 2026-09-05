@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+# Only the newest run per branch matters; cancel superseded ones.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # macOS is required: the package links IOKit, AppKit and SwiftUI.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Run unit tests
+        run: swift test
+
+      - name: Build the app bundle
+        # Exercises scripts/build-app.sh itself, which is how users are
+        # expected to get a runnable app — no binaries are distributed.
+        run: ./scripts/build-app.sh
+
+      - name: Verify the bundle
+        run: |
+          test -x build/Logilights.app/Contents/MacOS/Logilights
+          codesign --verify --strict --verbose=2 build/Logilights.app
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" \
+            build/Logilights.app/Contents/Info.plist

@@ -1,0 +1,39 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so newly published queries reach an idle repository too.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    # CodeQL is free for public repositories; on a private one it needs
+    # GitHub Advanced Security. Skipping keeps the workflow from failing
+    # while the repository is still private — it starts by itself once the
+    # repository is made public.
+    if: github.event.repository.private == false
+    runs-on: macos-latest
+
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+
+      - uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:swift

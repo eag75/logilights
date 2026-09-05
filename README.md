@@ -182,6 +182,25 @@ A bundled `.app` has no usable stdout, so everything goes through `os_log`:
 log stream --level info --predicate 'subsystem == "io.github.eag75.Logilights"'
 ```
 
+## Continuous integration
+
+Three workflows run on GitHub Actions, all within the free tier:
+
+| Workflow | Runner | What it does |
+|---|---|---|
+| `ci.yml` | macOS | `swift build`, `swift test`, and `scripts/build-app.sh` — so the documented way of getting a runnable app is itself tested |
+| `codeql.yml` | macOS | CodeQL analysis of the Swift sources |
+| `secret-scan.yml` | Linux | gitleaks over the working tree *and* the full git history |
+
+CodeQL is free for public repositories only; on a private one it needs
+GitHub Advanced Security. The workflow therefore skips itself while the
+repository is private and starts on its own once it is public.
+
+Two things are repository settings rather than workflows, and are worth
+switching on under Settings → Code security once the repository is public:
+**secret scanning** and **push protection**, which rejects a commit
+containing a recognized credential before it is ever pushed.
+
 ## License
 
 [GPLv3](LICENSE) — matching the origin of the protocol data in g810-led
