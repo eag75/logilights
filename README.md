@@ -1,150 +1,155 @@
 # Logilights
 
-Eine native macOS-Menüleisten-App, die die RGB-Beleuchtung unterstützter
-Logitech-G-Serie-Tastaturen setzt — automatisch beim Anstecken, nach dem
-Login und beim Aufwachen aus dem Schlafmodus.
+A native macOS menu bar app that sets the RGB lighting on supported Logitech
+G-series keyboards — automatically on plug-in, after login, and on wake from
+sleep.
 
 ## Status
 
-Gegen eine echte **Logitech G213** verifiziert:
+Verified against a real **Logitech G213**:
 
 | | |
 |---|---|
-| Farbe setzen | ✅ |
-| Automatisch beim An- und Abstecken | ✅ |
-| Automatisch beim App-Start (= nach Login) | ✅ |
-| Beim Aufwachen aus dem Schlafmodus | ✅ |
-| Nach einem Neustart des Rechners | ✅ (über das Login Item) |
-| Als Login Item registrieren | ✅ (Menü-Schalter und `enable`/`disable`) |
+| Setting a color | ✅ |
+| Automatically on plug and unplug | ✅ |
+| Automatically on app launch (i.e. after login) | ✅ |
+| On wake from sleep | ✅ |
+| After a reboot | ✅ (via the login item) |
+| Registering as a login item | ✅ (menu toggle and `enable`/`disable`) |
 
-## Unterstützte Geräte
+## Supported devices
 
-Tastaturen: G213, G410, G413, G512, G513, G610, G810, G815, G910, G Pro —
-dieselbe Modell-Liste wie [g810-led](https://github.com/MatMoul/g810-led).
+Keyboards: G213, G410, G413, G512, G513, G610, G810, G815, G910, G Pro — the
+same model list as [g810-led](https://github.com/MatMoul/g810-led).
 
-**Mäuse werden nicht unterstützt.** g810-led deckt nur Tastaturen ab;
-Logitech-Maus-RGB läuft über das separate, proprietäre HID++-Protokoll.
-Mögliche spätere Referenzen dafür: [Solaar](https://github.com/pwr-solaar/Solaar),
+**Mice are not supported.** g810-led covers keyboards only; Logitech mouse
+RGB goes through the separate, proprietary HID++ protocol. Possible
+references for that later on:
+[Solaar](https://github.com/pwr-solaar/Solaar),
 [libratbag](https://github.com/libratbag/libratbag),
-[logiops](https://github.com/PixlOne/logiops). Beachte außerdem: viele als
-„Gaming Mouse" verkaufte Geräte sind gar keine Logitech-Geräte (andere
-Vendor-ID) und damit über keinen dieser Wege ansteuerbar.
+[logiops](https://github.com/PixlOne/logiops). Also note that many devices
+sold as a "gaming mouse" are not Logitech hardware at all (different vendor
+ID), which puts them out of reach of any of those.
 
-## Warum USB-Control-Transfer statt HID-API?
+## Why a USB control transfer instead of the HID API?
 
-Der naheliegende macOS-Weg wäre `IOHIDDeviceSetReport`. Der funktioniert
-hier **nicht**: macOS lehnt ihn auf diesen Tastaturen mit
-`kIOReturnNotPermitted` (`0xe00002e2`) ab, weil ihre erste HID-Collection
-eine Keyboard-Collection ist. Das ist eine Anti-Keylogger-Härtung — und sie
-lässt sich **weder** mit der Berechtigung „Eingabeüberwachung" (getestet:
-`granted`, ändert nichts) **noch** mit `sudo` umgehen.
+The obvious route on macOS would be `IOHIDDeviceSetReport`. It does **not**
+work here: macOS rejects it on these keyboards with `kIOReturnNotPermitted`
+(`0xe00002e2`), because their first HID collection is a keyboard collection.
+This is anti-keylogger hardening, and it can be lifted **neither** by the
+"Input Monitoring" permission (tested: `granted`, makes no difference)
+**nor** by `sudo`.
 
-Stattdessen sendet `USBLEDTransport` denselben Control-Transfer, den
-g810-led unter Linux via libusb nutzt:
+Instead, `USBLEDTransport` sends the same control transfer that g810-led
+uses on Linux via libusb:
 
-| Feld | Wert |
+| Field | Value |
 |---|---|
-| `bmRequestType` | `0x21` (Host→Device, Class, Interface) |
+| `bmRequestType` | `0x21` (host→device, class, interface) |
 | `bRequest` | `0x09` (SET_REPORT) |
-| `wValue` | `0x02<ReportID>` — `0x0211` (20 Byte) / `0x0212` (64 Byte) |
-| `wIndex` | `1` (Interface 1) |
+| `wValue` | `0x02<report ID>` — `0x0211` (20 bytes) / `0x0212` (64 bytes) |
+| `wIndex` | `1` (interface 1) |
 
-Das läuft über `IOUSBDeviceInterface.DeviceRequest` an Endpoint 0 des
-Geräts und benennt Interface 1 nur in `wIndex`. Dadurch bleibt das
-HID-Interface bei `AppleUserHIDDriver` — es muss nichts verdrängt werden,
-und die App braucht **weder Root-Rechte noch irgendeine TCC-Berechtigung**.
+This goes through `IOUSBDeviceInterface.DeviceRequest` to endpoint 0 of the
+device and merely names interface 1 in `wIndex`. The HID interface therefore
+stays with `AppleUserHIDDriver` — nothing has to be seized, and the app needs
+**neither root privileges nor any TCC authorization**.
 
-Der Report-Descriptor der G213 bestätigt die portierten Werte: Interface 1
-deklariert unter Logitechs Vendor-Usage-Page `0xFF43` genau die Report-IDs
-`0x11` (19+1 = 20 Byte) und `0x12` (63+1 = 64 Byte) als Output-Reports.
+The G213's report descriptor confirms the ported values: interface 1
+declares exactly the report IDs `0x11` (19+1 = 20 bytes) and `0x12`
+(63+1 = 64 bytes) as output reports, under Logitech's vendor usage page
+`0xFF43`.
 
-### Zwei Fallstricke
+### Two pitfalls
 
-- **Reports brauchen Abstand.** Ohne g810-leds `usleep(1000)` zwischen den
-  Transfers verschluckt die Tastatur einzelne Reports, *obwohl der Transfer
-  Erfolg meldet* — konkret blieb Region 1 der G213 auf ihrer alten Farbe,
-  während Regionen 2–5 umschalteten.
-- **IOKit-Matching.** USB-Property-Filter im Matching-Dictionary greifen nur,
-  wenn `idVendor` **und** `idProduct` gesetzt sind; mit `idVendor` allein
-  matcht IOKit stillschweigend gar nichts. Deshalb enumeriert der Code alle
-  USB-Geräte und filtert selbst.
+- **Reports need spacing.** Without g810-led's `usleep(1000)` between
+  transfers the keyboard silently drops individual reports, *even though the
+  transfer reports success* — concretely, region 1 of the G213 kept its old
+  color while regions 2–5 changed.
+- **IOKit matching.** USB property filters in a matching dictionary only take
+  effect when `idVendor` **and** `idProduct` are both set; with `idVendor`
+  alone IOKit silently matches nothing. The code therefore enumerates all USB
+  devices and filters them itself.
 
-## Architektur
+## Architecture
 
-- **`Protocol/`** — reine, hardwarefreie Byte-Kodierung
-  (`LogitechColorProtocol`), 1:1 aus g810-leds `LedKeyboard`-Klasse
-  (`src/classes/Keyboard.cpp`) portiert. Unit-getestet ohne angeschlossenes
-  Gerät.
-- **`HID/USBDeviceMonitor`** — IOKit-USB-Notifications, meldet Attach/Detach
-  unterstützter Logitech-Tastaturen (kein HID-Stack, daher keine
-  TCC-Berechtigung nötig).
-- **`HID/USBLEDTransport`** — sendet die kodierten Reports als
-  USB-Control-Transfer (siehe oben).
-- **`ColorProfileStore`** — persistiert eine Farbe pro Modell unter
+- **`Protocol/`** — pure, hardware-free byte encoding
+  (`LogitechColorProtocol`), ported 1:1 from g810-led's `LedKeyboard` class
+  (`src/classes/Keyboard.cpp`). Unit-tested with no device attached.
+- **`HID/USBDeviceMonitor`** — IOKit USB notifications reporting attach and
+  detach of supported Logitech keyboards (no HID stack, hence no TCC
+  authorization needed).
+- **`HID/USBLEDTransport`** — sends the encoded reports as a USB control
+  transfer (see above).
+- **`ColorProfileStore`** — persists one color per model in
   `~/Library/Application Support/Logilights/profile.json`.
-- **`AppCoordinator`** — verbindet alles: reagiert auf Attach-Events, hält
-  die Liste verbundener Modelle für die UI vor.
-- **`TriggerCoordinator`** — registriert die App als Login Item
-  (`SMAppService`) und wendet beim Start (= nach Login) sowie beim Aufwachen
-  (`NSWorkspace.didWakeNotification`) alle gespeicherten Farben erneut an.
-- **SwiftUI-Menüleisten-UI** (`LogilightsApp`, `ContentView`) — Farbwähler
-  pro verbundenem Modell.
+- **`AppCoordinator`** — ties it together: reacts to attach events and keeps
+  the list of connected models for the UI.
+- **`TriggerCoordinator`** — reapplies all stored colors on launch (i.e.
+  after login) and on wake (`NSWorkspace.didWakeNotification`). It
+  deliberately does *not* register the login item; that is a user-facing
+  setting, see below.
+- **SwiftUI menu bar UI** (`LogilightsApp`, `ContentView`) — a color picker
+  per connected model.
 
-## Verwendete Frameworks
+## Frameworks used
 
-Alle Apple-nativ, keine Drittanbieter-Laufzeitabhängigkeit:
+All Apple-native, no third-party runtime dependency:
 
-- Swift Package Manager (Build-System)
+- Swift Package Manager (build system)
 - SwiftUI (`MenuBarExtra`, `ColorPicker`)
 - AppKit (`NSApplication`, `NSWorkspace`, `NSColor`)
-- IOKit / `IOUSBLib` (Geräteerkennung via USB-Notifications + Control-Transfer)
-- ServiceManagement (`SMAppService`, Login Item)
+- IOKit / `IOUSBLib` (device discovery via USB notifications + control transfer)
+- ServiceManagement (`SMAppService`, login item)
 - XCTest
 
-## Bauen & Ausführen
+## Building and running
 
-Mit Xcode 27+ oder direkt per CLI (funktioniert identisch in VSCodium mit
-SourceKit-LSP, da reines SPM-Package ohne `.xcodeproj`):
+With Xcode 27+ or straight from the command line (identical in VSCodium with
+SourceKit-LSP, since this is a plain SPM package with no `.xcodeproj`):
 
 ```sh
 swift build
-swift run Logilights          # Menüleisten-App
-swift test                    # Protokoll-Unit-Tests, ohne Hardware
+swift run Logilights          # menu bar app
+swift test                    # protocol unit tests, no hardware needed
 ```
 
-Zum Testen gegen echte Hardware gibt es ein CLI-Werkzeug:
+There is a CLI tool for testing against real hardware:
 
 ```sh
-swift run LogilightsCLI list          # verbundene unterstützte Tastaturen
-swift run LogilightsCLI set ff0000    # ganze Tastatur rot
-swift run LogilightsCLI dump ff0000   # Reports anzeigen, ohne Hardware anzufassen
+swift run LogilightsCLI list          # connected supported keyboards
+swift run LogilightsCLI set ff0000    # whole keyboard red
+swift run LogilightsCLI dump ff0000   # show the reports without touching hardware
 ```
 
-Die App läuft als Menüleisten-Symbol ohne Dock-Icon (`LSUIElement`).
+The app runs as a menu bar icon with no dock icon (`LSUIElement`).
 
-### App-Bundle bauen
+### Building the app bundle
 
-`swift run` reicht zum Entwickeln, aber „Beim Anmelden starten"
-(`SMAppService`) funktioniert nur aus einem echten, signierten Bundle:
+`swift run` is enough for development, but "start at login"
+(`SMAppService`) only works from a real, signed bundle:
 
 ```sh
-./scripts/build-app.sh              # -> build/Logilights.app (ad-hoc signiert)
-./scripts/build-app.sh --install    # zusätzlich nach /Applications kopieren
+./scripts/build-app.sh              # -> build/Logilights.app (ad-hoc signed)
+./scripts/build-app.sh --install    # also copy it to /Applications
 ```
 
-Für eine verteilbare Version eine Developer ID setzen:
+No prebuilt binaries are distributed: the bundle is only ad-hoc signed, so a
+downloaded copy would be blocked by Gatekeeper. Build it yourself with the
+script above. With an Apple Developer ID, a distributable version can be
+signed like this:
 
 ```sh
-SIGN_IDENTITY="Developer ID Application: Dein Name (TEAMID)" ./scripts/build-app.sh
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/build-app.sh
 ```
 
-Weil macOS Anmeldeobjekte an den Pfad des Bundles bindet, sollte die App an
-einem festen Ort liegen (z.B. `/Applications`) — nicht im `build/`-Ordner.
+Because macOS ties login items to the bundle's path, the app should live in a
+fixed location (e.g. `/Applications`) rather than in the `build/` directory.
 
-### Beim Anmelden starten
+### Start at login
 
-Der Schalter sitzt im Menüleisten-Popover. Logilights trägt sich **nicht**
-von selbst ein. Skriptbar ist es auch:
+The toggle sits in the menu bar popover. Logilights does **not** add itself.
+It is scriptable too:
 
 ```sh
 /Applications/Logilights.app/Contents/MacOS/Logilights --login-item status
@@ -152,26 +157,25 @@ von selbst ein. Skriptbar ist es auch:
 /Applications/Logilights.app/Contents/MacOS/Logilights --login-item disable
 ```
 
-Meldet der Status `requiresApproval`, muss der Eintrag noch unter
-Systemeinstellungen → Allgemein → Anmeldeobjekte freigegeben werden.
+If the status comes back as `requiresApproval`, the entry still has to be
+approved under System Settings → General → Login Items.
 
 ### Logs
 
-Ein gebündeltes `.app` hat kein brauchbares stdout, daher läuft alles über
-`os_log`:
+A bundled `.app` has no usable stdout, so everything goes through `os_log`:
 
 ```sh
 log stream --level info --predicate 'subsystem == "io.github.eag75.Logilights"'
 ```
 
-## Lizenz
+## License
 
-[GPLv3](LICENSE) — passend zur Herkunft der Protokolldaten aus g810-led
-(ebenfalls GPLv3). Farbcode-Tabellen und Report-Layouts sind aus
-[g810-led](https://github.com/MatMoul/g810-led) von MatMoul und
-Contributors portiert; vielen Dank dafür.
+[GPLv3](LICENSE) — matching the origin of the protocol data in g810-led
+(also GPLv3). Color tables and report layouts are ported from
+[g810-led](https://github.com/MatMoul/g810-led) by MatMoul and contributors;
+many thanks for that work.
 
-## Git-Workflow
+## Git workflow
 
-Die gesamte Entwicklung findet auf dem `develop`-Branch statt, `main` ist
-für Releases vorgesehen.
+All development happens on the `develop` branch; `main` is reserved for
+releases.

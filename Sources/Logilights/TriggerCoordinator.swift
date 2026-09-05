@@ -5,7 +5,7 @@ import LogilightsCore
 /// Wires up the moments lighting should be (re)applied, beyond the device
 /// attach trigger `AppCoordinator` already handles directly:
 ///
-/// - App launch, i.e. "beim Rechnerstart" in the sense agreed with the user:
+/// - App launch — "at computer start" in the sense agreed with the user:
 ///   after login, once Logilights starts (see `LoginItem`).
 /// - Wake from sleep (`NSWorkspace.didWakeNotification`).
 ///

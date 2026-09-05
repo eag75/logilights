@@ -10,7 +10,7 @@ struct ContentView: View {
                 .font(.headline)
 
             if coordinator.connectedModels.isEmpty {
-                Text("Keine Geräte erkannt.")
+                Text("No devices detected.")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(coordinator.connectedModels).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { model in
@@ -20,7 +20,7 @@ struct ContentView: View {
 
             Divider()
 
-            Button("Jetzt anwenden") {
+            Button("Apply now") {
                 coordinator.applyAllStoredColors()
             }
             .disabled(coordinator.connectedModels.isEmpty)
@@ -29,7 +29,7 @@ struct ContentView: View {
 
             Divider()
 
-            Button("Beenden") {
+            Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
         }
@@ -60,7 +60,7 @@ private struct LoginItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(
-                "Beim Anmelden starten",
+                "Start at login",
                 isOn: Binding(
                     get: { coordinator.loginItemState.isOn },
                     set: { coordinator.setLaunchAtLogin($0) }
@@ -69,14 +69,14 @@ private struct LoginItemRow: View {
             .disabled(coordinator.loginItemState == .unavailable)
 
             if let error = coordinator.loginItemError {
-                Hint("Fehlgeschlagen: \(error)")
+                Hint("Failed: \(error)")
             } else {
                 switch coordinator.loginItemState {
                 case .requiresApproval:
-                    Hint("Muss noch unter Systemeinstellungen → Allgemein → "
-                         + "Anmeldeobjekte freigegeben werden.")
+                    Hint("Still needs to be approved under System Settings → "
+                         + "General → Login Items.")
                 case .unavailable:
-                    Hint("Nur verfügbar, wenn Logilights als App-Bundle läuft.")
+                    Hint("Only available when Logilights runs as an app bundle.")
                 case .enabled, .notRegistered:
                     EmptyView()
                 }
