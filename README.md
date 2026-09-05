@@ -22,9 +22,22 @@ Verified against a real **Logitech G213**:
 Keyboards: G213, G410, G413, G512, G513, G610, G810, G815, G910, G Pro — the
 same model list as [g810-led](https://github.com/MatMoul/g810-led).
 
-**Mice are not supported.** g810-led covers keyboards only; Logitech mouse
-RGB goes through the separate, proprietary HID++ protocol. Possible
-references for that later on:
+**Mice are not supported**, and on macOS that looks hard to change. g810-led
+covers keyboards only; Logitech mouse RGB goes through the separate,
+proprietary HID++ protocol, which needs the device's feature table — and
+reading it means getting replies back from the device. That was tried
+against a G203 LIGHTSYNC and does not work here:
+
+- Writing through the HID stack is refused with `kIOReturnNotPermitted`, the
+  same hardening that rules it out for keyboards.
+- Writing over the USB control pipe works, but replies to HID++ requests
+  never arrive — not for the mouse and not for a keyboard, in any request
+  form tried, even though ordinary input reports (mouse movement) stream in
+  fine from a signed bundle with Input Monitoring.
+
+Since HID++ feature indices differ per model, no replies means no way to
+address the LEDs except guesswork. The experiment is preserved on the
+`phase2-hidpp` branch. Prior art worth consulting before another attempt:
 [Solaar](https://github.com/pwr-solaar/Solaar),
 [libratbag](https://github.com/libratbag/libratbag),
 [logiops](https://github.com/PixlOne/logiops). Also note that many devices
