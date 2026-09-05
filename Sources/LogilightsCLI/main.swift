@@ -17,7 +17,8 @@ func usage() -> Never {
       LogilightsCLI dump <rrggbb>    Print the reports that would be sent, without touching hardware
 
     HID++ experiments (mouse support, work in progress):
-      LogilightsCLI hidpp-features <vid> <pid>       Ask the device which HID++ features it has
+      LogilightsCLI hidpp-features <vid> <pid>       Ask via control pipe (no permissions, replies unusable)
+      LogilightsCLI hidpp-features-hid <vid> <pid>   Ask via the HID stack (needs a signed bundle)
       LogilightsCLI hidpp-raw <vid> <pid> <hex...>   Send one hand-written HID++ report
     """)
     exit(1)
@@ -102,10 +103,25 @@ func parseID(_ string: String) -> UInt16? {
 }
 
 switch command {
-case "hidpp-features":
+case "hidpp-features-hidwrite":
+    guard arguments.count == 3,
+          let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
+    HIDPPProbe.featuresViaHID(vendorID: vid, productID: pid)
+case "hidpp-listen":
+    guard arguments.count >= 3,
+          let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
+    let seconds = arguments.count > 3 ? (Double(arguments[3]) ?? 3) : 3
+    HIDPPProbe.listen(vendorID: vid, productID: pid, seconds: seconds)
+case "hidpp-features-hid":
+    // Reads replies through the HID stack, which needs Input Monitoring and
+    // therefore a signed bundle — see scripts/build-probe-app.sh.
     guard arguments.count == 3,
           let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
     HIDPPProbe.features(vendorID: vid, productID: pid)
+case "hidpp-features":
+    guard arguments.count == 3,
+          let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
+    HIDPPProbe.featuresViaControl(vendorID: vid, productID: pid)
 case "hidpp-raw":
     guard arguments.count >= 4,
           let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }

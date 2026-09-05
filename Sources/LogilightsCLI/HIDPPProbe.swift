@@ -29,43 +29,91 @@ enum HIDPPProbe {
         return HIDOutputReport(reportID: 0x10, bytes: bytes)
     }
 
+    private static func accessName(_ value: IOHIDAccessType) -> String {
+        switch value {
+        case kIOHIDAccessTypeGranted: return "granted"
+        case kIOHIDAccessTypeDenied: return "denied"
+        case kIOHIDAccessTypeUnknown: return "unknown (not yet asked)"
+        default: return "\(value.rawValue)"
+        }
+    }
+
     // MARK: - Reading replies
 
     final class Listener {
         private var manager: IOHIDManager?
+        private var devices: [IOHIDDevice] = []
+        private var buffers: [UnsafeMutablePointer<UInt8>] = []
         private(set) var received: [[UInt8]] = []
-        private var buffer = [UInt8](repeating: 0, count: 64)
 
         func start(vendorID: UInt16, productID: UInt16) -> Bool {
+            print("Input Monitoring: \(accessName(IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)))")
+
             let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
             let matching: [String: Any] = [
                 kIOHIDVendorIDKey: Int(vendorID),
                 kIOHIDProductIDKey: Int(productID),
             ]
             IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-            IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
 
             let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             guard openResult == kIOReturnSuccess else {
                 print(String(format: "IOHIDManagerOpen failed: 0x%08x", UInt32(bitPattern: openResult)))
                 return false
             }
-
-            // The manager-level callback takes no buffer of its own; each
-            // enumerated device needs one registered individually.
-            IOHIDManagerRegisterInputReportCallback(
-                manager,
-                { context, _, _, _, reportID, report, length in
-                    guard let context else { return }
-                    let listener = Unmanaged<Listener>.fromOpaque(context).takeUnretainedValue()
-                    var bytes = [UInt8(truncatingIfNeeded: reportID)]
-                    bytes.append(contentsOf: UnsafeBufferPointer(start: report, count: length))
-                    listener.received.append(bytes)
-                },
-                Unmanaged.passUnretained(self).toOpaque())
-
             self.manager = manager
-            return true
+
+            devices = Array((IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? [])
+            let context = Unmanaged.passUnretained(self).toOpaque()
+
+            // The manager-level callback does not deliver anything on its own;
+            // each device needs its own registration and its own buffer, which
+            // has to stay alive for as long as the callback is registered.
+            for device in devices {
+                let size = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 64
+                let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
+                buffer.initialize(repeating: 0, count: size)
+                buffers.append(buffer)
+
+                IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                IOHIDDeviceRegisterInputReportCallback(
+                    device, buffer, size,
+                    { context, _, _, _, reportID, report, length in
+                        guard let context else { return }
+                        let listener = Unmanaged<Listener>.fromOpaque(context).takeUnretainedValue()
+                        var bytes = [UInt8(truncatingIfNeeded: reportID)]
+                        bytes.append(contentsOf: UnsafeBufferPointer(start: report, count: length))
+                        listener.received.append(bytes)
+                    },
+                    context)
+                IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+            }
+
+            print("Listening on \(devices.count) device(s)")
+            return !devices.isEmpty
+        }
+
+        /// The device carrying the 20-byte HID++ long report.
+        var hidppDevice: IOHIDDevice? {
+            devices.first { device in
+                (IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int) == 20
+            }
+        }
+
+        /// Writes an output report through the HID stack instead of the USB
+        /// control pipe. `report.bytes` includes the report ID as byte 0,
+        /// while IOHIDDeviceSetReport takes it separately.
+        func setReport(_ report: HIDOutputReport) -> IOReturn {
+            guard let device = hidppDevice else { return kIOReturnNoDevice }
+            let payload = Array(report.bytes.dropFirst())
+            return payload.withUnsafeBufferPointer { buffer in
+                IOHIDDeviceSetReport(
+                    device,
+                    kIOHIDReportTypeOutput,
+                    CFIndex(report.reportID),
+                    buffer.baseAddress!,
+                    buffer.count)
+            }
         }
 
         /// Runs the run loop briefly so callbacks can fire.
@@ -74,9 +122,123 @@ enum HIDPPProbe {
         }
 
         func stop() {
-            guard let manager else { return }
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            self.manager = nil
+            for device in devices {
+                IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            }
+            devices = []
+            for buffer in buffers { buffer.deallocate() }
+            buffers = []
+            if let manager {
+                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+                self.manager = nil
+            }
+        }
+    }
+
+    // MARK: - Request/response over the control pipe
+
+    /// Sends one HID++ request and reads the reply with GET_REPORT, bypassing
+    /// the HID stack entirely (no Input Monitoring needed).
+    static func exchange(
+        vendorID: UInt16,
+        productID: UInt16,
+        request: HIDOutputReport
+    ) -> [UInt8]? {
+        do {
+            return try USBLEDTransport().exchange(
+                report: request,
+                replyReportID: request.reportID,
+                replyLength: request.bytes.count,
+                vendorID: vendorID,
+                productID: productID)
+        } catch {
+            print("exchange failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Walks the HID++ feature table, writing the requests through the HID
+    /// stack (IOHIDDeviceSetReport) rather than the USB control pipe.
+    static func featuresViaHID(vendorID: UInt16, productID: UInt16) {
+        let interesting: [(UInt16, String)] = [
+            (0x0001, "IFeatureSet"),
+            (0x0003, "DeviceInformation"),
+            (0x8070, "ColorLedEffects"),
+            (0x8071, "RGBEffects"),
+            (0x8060, "ReportRate"),
+            (0x8100, "OnboardProfiles"),
+        ]
+
+        let listener = Listener()
+        guard listener.start(vendorID: vendorID, productID: productID) else { return }
+        defer { listener.stop() }
+        listener.pump(seconds: 0.2)
+
+        for (feature, name) in interesting {
+            let before = listener.received.count
+            let request = longReport(
+                featureIndex: 0x00,
+                function: 0x0a,  // getFeature(featureId), software id 0xa
+                params: [UInt8(feature >> 8), UInt8(feature & 0xff)])
+
+            let result = listener.setReport(request)
+            guard result == kIOReturnSuccess else {
+                print(String(format: "0x%04x %-18@ setReport failed: 0x%08x",
+                             feature, name as NSString, UInt32(bitPattern: result)))
+                continue
+            }
+            listener.pump(seconds: 0.4)
+
+            // Ignore the mouse movement reports that keep streaming in.
+            let replies = listener.received.dropFirst(before).filter { $0.first == 0x11 || $0.first == 0x10 }
+            if replies.isEmpty {
+                print(String(format: "0x%04x %-18@ -> (no reply)", feature, name as NSString))
+            } else {
+                for reply in replies {
+                    print(String(format: "0x%04x %-18@ -> %@", feature, name as NSString, hex(reply) as NSString))
+                }
+            }
+        }
+    }
+
+    /// Listens for input reports without sending anything, to verify the
+    /// callback plumbing works at all (mouse movement alone produces reports).
+    static func listen(vendorID: UInt16, productID: UInt16, seconds: TimeInterval) {
+        let listener = Listener()
+        guard listener.start(vendorID: vendorID, productID: productID) else { return }
+        defer { listener.stop() }
+
+        print("Listening for \(Int(seconds))s — move the device to generate reports…")
+        listener.pump(seconds: seconds)
+
+        print("Received \(listener.received.count) report(s)")
+        for reply in listener.received.prefix(8) {
+            print("  " + hex(reply))
+        }
+    }
+
+    /// Walks the HID++ feature table over the control pipe.
+    static func featuresViaControl(vendorID: UInt16, productID: UInt16) {
+        let interesting: [(UInt16, String)] = [
+            (0x0000, "IRoot"),
+            (0x0001, "IFeatureSet"),
+            (0x0003, "DeviceInformation"),
+            (0x8070, "ColorLedEffects"),
+            (0x8071, "RGBEffects"),
+            (0x8060, "ReportRate"),
+            (0x8100, "OnboardProfiles"),
+        ]
+
+        for (feature, name) in interesting {
+            let request = longReport(
+                featureIndex: 0x00,
+                function: 0x0a,  // getFeature(featureId), software id 0xa
+                params: [UInt8(feature >> 8), UInt8(feature & 0xff)])
+            guard let reply = exchange(vendorID: vendorID, productID: productID, request: request) else {
+                return
+            }
+            print(String(format: "0x%04x %-18@ <- %@", feature, name as NSString, hex(reply) as NSString))
         }
     }
 
@@ -131,14 +293,13 @@ enum HIDPPProbe {
         }
     }
 
-    /// Sends one hand-written HID++ report and prints any reply, so a candidate
-    /// LED command can be tried against the hardware directly.
+    /// Sends one hand-written HID++ report over the control pipe and prints
+    /// whatever the device answers on the HID input reports.
+    ///
+    /// This is the only combination that can work here: writes through the
+    /// HID stack are refused with kIOReturnNotPermitted, and replies are not
+    /// readable over the control pipe.
     static func raw(vendorID: UInt16, productID: UInt16, bytes: [UInt8]) {
-        let listener = Listener()
-        _ = listener.start(vendorID: vendorID, productID: productID)
-        defer { listener.stop() }
-        listener.pump(seconds: 0.2)
-
         var padded = bytes
         let size = bytes.first == 0x10 ? 7 : 20
         if padded.count < size {
@@ -146,21 +307,29 @@ enum HIDPPProbe {
         }
         let report = HIDOutputReport(reportID: padded[0], bytes: padded)
 
+        let listener = Listener()
+        guard listener.start(vendorID: vendorID, productID: productID) else { return }
+        defer { listener.stop() }
+        listener.pump(seconds: 0.2)
+        let before = listener.received.count
+
         print("-> " + hex(padded))
+        USBLEDTransport.verbose = true
+        defer { USBLEDTransport.verbose = false }
         do {
             try USBLEDTransport().send(reports: [report], vendorID: vendorID, productID: productID)
         } catch {
             print("send failed: \(error)")
             return
         }
-        listener.pump(seconds: 0.5)
+        listener.pump(seconds: 0.6)
 
-        if listener.received.isEmpty {
-            print("<- (no reply)")
+        // Mouse movement keeps producing reports; only HID++ ones matter.
+        let replies = listener.received.dropFirst(before).filter { $0.first == 0x10 || $0.first == 0x11 }
+        if replies.isEmpty {
+            print("<- (no HID++ reply; \(listener.received.count - before) other report(s) seen)")
         } else {
-            for reply in listener.received {
-                print("<- " + hex(reply))
-            }
+            for reply in replies { print("<- " + hex(reply)) }
         }
     }
 }

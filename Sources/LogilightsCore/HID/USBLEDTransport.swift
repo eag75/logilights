@@ -54,6 +54,11 @@ public final class USBLEDTransport {
                                        b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15])
     }
 
+    /// Prints how the device was opened. Diagnostics for the HID++ work,
+    /// where seizing the device from the HID driver would cost us the
+    /// interrupt-endpoint replies we are trying to read.
+    public static var verbose = false
+
     public init() {}
 
     /// Applies `color` to every connected keyboard of a supported model.
@@ -83,6 +88,63 @@ public final class USBLEDTransport {
 
     /// Sends the given reports to the first matching USB device.
     public func send(reports: [HIDOutputReport], vendorID: UInt16, productID: UInt16) throws {
+        try withOpenDevice(vendorID: vendorID, productID: productID) { device, api in
+            for report in reports {
+                try send(report: report, to: device, api: api)
+                // g810-led sleeps 1 ms after every control transfer (and drains
+                // the interrupt endpoint). Without a pause the keyboard silently
+                // drops reports even though the transfer itself reports success
+                // — observed on a G213, where region 1 kept its previous color
+                // while regions 2-5 updated.
+                usleep(Self.interReportDelayMicroseconds)
+            }
+        }
+    }
+
+    /// Sends `report`, then asks the device for an input report of
+    /// `replyReportID` over a GET_REPORT control transfer, in the same open
+    /// session.
+    ///
+    /// Experimental, for HID++ feature discovery: those devices answer a
+    /// request on an *input* report, which normally has to be read from the
+    /// interrupt endpoint. Reading it through the control pipe instead — if
+    /// the device honors that — avoids the HID stack, which macOS blocks on
+    /// devices that carry a keyboard collection.
+    public func exchange(
+        report: HIDOutputReport,
+        replyReportID: UInt8,
+        replyLength: Int,
+        vendorID: UInt16,
+        productID: UInt16
+    ) throws -> [UInt8] {
+        var reply = [UInt8](repeating: 0, count: replyLength)
+        try withOpenDevice(vendorID: vendorID, productID: productID) { device, api in
+            try send(report: report, to: device, api: api)
+            usleep(Self.interReportDelayMicroseconds)
+
+            let result = reply.withUnsafeMutableBufferPointer { buffer -> IOReturn in
+                var request = IOUSBDevRequest(
+                    bmRequestType: 0xa1,  // device->host | class | interface
+                    bRequest: 0x01,       // GET_REPORT
+                    // High byte 0x01 selects an Input report.
+                    wValue: 0x0100 | UInt16(replyReportID),
+                    wIndex: Self.ledInterfaceIndex,
+                    wLength: UInt16(buffer.count),
+                    pData: buffer.baseAddress,
+                    wLenDone: 0)
+                return api.DeviceRequest(device, &request)
+            }
+            guard result == kIOReturnSuccess else { throw TransportError.requestFailed(result) }
+        }
+        return reply
+    }
+
+    /// Opens the matching device, runs `body`, and closes it again.
+    private func withOpenDevice(
+        vendorID: UInt16,
+        productID: UInt16,
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<IOUSBDeviceInterface>?>, IOUSBDeviceInterface) throws -> Void
+    ) throws {
         guard let service = findDevice(vendorID: vendorID, productID: productID) else {
             throw TransportError.deviceNotFound
         }
@@ -97,20 +159,18 @@ public final class USBLEDTransport {
         var openResult = api.USBDeviceOpen(device)
         if openResult != kIOReturnSuccess {
             // Another process (or a driver) holds it — take it over.
+            if Self.verbose {
+                print(String(format: "[transport] USBDeviceOpen failed (0x%08x), seizing",
+                             UInt32(bitPattern: openResult)))
+            }
             openResult = api.USBDeviceOpenSeize(device)
+        } else if Self.verbose {
+            print("[transport] USBDeviceOpen succeeded, no seize needed")
         }
         guard openResult == kIOReturnSuccess else { throw TransportError.openFailed(openResult) }
         defer { _ = api.USBDeviceClose(device) }
 
-        for report in reports {
-            try send(report: report, to: device, api: api)
-            // g810-led sleeps 1 ms after every control transfer (and drains
-            // the interrupt endpoint). Without a pause the keyboard silently
-            // drops reports even though the transfer itself reports success
-            // — observed on a G213, where region 1 kept its previous color
-            // while regions 2-5 updated.
-            usleep(Self.interReportDelayMicroseconds)
-        }
+        try body(device, api)
     }
 
     /// Matches g810-led's `usleep(1000)` between transfers.
