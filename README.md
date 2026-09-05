@@ -161,7 +161,7 @@ Ein gebündeltes `.app` hat kein brauchbares stdout, daher läuft alles über
 `os_log`:
 
 ```sh
-log stream --level info --predicate 'subsystem == "io.github.logilights.Logilights"'
+log stream --level info --predicate 'subsystem == "io.github.eag75.Logilights"'
 ```
 
 ## Lizenz
