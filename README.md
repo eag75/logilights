@@ -16,6 +16,7 @@ Verified against a real **Logitech G213**:
 | On wake from sleep | ✅ |
 | After a reboot | ✅ (via the login item) |
 | Registering as a login item | ✅ (menu toggle and `enable`/`disable`) |
+| Choosing a color in the menu bar | ✅ (color picker and presets) |
 
 ## Supported devices
 
