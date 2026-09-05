@@ -23,17 +23,18 @@ struct ContentView: View {
             Button("Apply now") {
                 coordinator.applyAllStoredColors()
             }
+            .buttonStyle(.borderedProminent)
             .disabled(coordinator.connectedModels.isEmpty)
 
             LoginItemRow(coordinator: coordinator)
 
             Divider()
 
-            Button("Quit") {
+            Button("Quit Logilights") {
                 NSApplication.shared.terminate(nil)
             }
         }
-        .padding()
+        .padding(14)
         .frame(width: 260)
     }
 }

@@ -19,6 +19,12 @@ struct LogilightsApp: App {
             ContentView()
                 .environmentObject(coordinator)
         }
+        // Without this the content is rendered as an AppKit *menu*, which can
+        // only show menu-shaped items: Text, Button, Toggle and Divider come
+        // out fine, but a ColorPicker or any custom-drawn view silently
+        // occupies blank space. The window style gives a real popover where
+        // arbitrary SwiftUI works.
+        .menuBarExtraStyle(.window)
     }
 
     /// Lets the login item registration be driven from the command line,
