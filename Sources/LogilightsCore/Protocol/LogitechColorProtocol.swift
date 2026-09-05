@@ -5,6 +5,11 @@ import Foundation
 public struct HIDOutputReport: Equatable {
     public let reportID: UInt8
     public let bytes: [UInt8]
+
+    public init(reportID: UInt8, bytes: [UInt8]) {
+        self.reportID = reportID
+        self.bytes = bytes
+    }
 }
 
 /// Pure byte-encoding logic for setting a single solid color across an entire

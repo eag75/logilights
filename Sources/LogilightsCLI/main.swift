@@ -15,6 +15,10 @@ func usage() -> Never {
       LogilightsCLI list             List connected supported Logitech keyboards
       LogilightsCLI set <rrggbb>     Set every connected supported keyboard to that color
       LogilightsCLI dump <rrggbb>    Print the reports that would be sent, without touching hardware
+
+    HID++ experiments (mouse support, work in progress):
+      LogilightsCLI hidpp-features <vid> <pid>       Ask the device which HID++ features it has
+      LogilightsCLI hidpp-raw <vid> <pid> <hex...>   Send one hand-written HID++ report
     """)
     exit(1)
 }
@@ -92,7 +96,25 @@ func runDump(_ color: LogitechColor) {
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard let command = arguments.first else { usage() }
 
+func parseID(_ string: String) -> UInt16? {
+    let hex = string.hasPrefix("0x") ? String(string.dropFirst(2)) : string
+    return UInt16(hex, radix: 16)
+}
+
 switch command {
+case "hidpp-features":
+    guard arguments.count == 3,
+          let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
+    HIDPPProbe.features(vendorID: vid, productID: pid)
+case "hidpp-raw":
+    guard arguments.count >= 4,
+          let vid = parseID(arguments[1]), let pid = parseID(arguments[2]) else { usage() }
+    let bytes = arguments.dropFirst(3).compactMap { UInt8($0, radix: 16) }
+    guard bytes.count == arguments.count - 3 else {
+        print("Report bytes must be hex, e.g. 11 ff 0e 3b 00 01 ff 00 00 02\n")
+        usage()
+    }
+    HIDPPProbe.raw(vendorID: vid, productID: pid, bytes: bytes)
 case "list":
     runList()
 case "set", "dump":
